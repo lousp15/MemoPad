@@ -35,3 +35,4 @@ android/captures/
 android/.idea/
 android/local.properties
 *.zip
+.reasonix/
