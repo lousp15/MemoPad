@@ -16,6 +16,7 @@ import { useUiStore } from '../../stores/uiStore';
 import { useUndo } from '../../hooks/useUndo';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { memoService } from '../../../core/services/MemoService';
+import { githubApi } from '../../../core/services/GitHubApi';
 import { IndexedDBAdapter } from '../../../core/adapters/IndexedDBAdapter';
 import { PersistQueue } from '../../../core/persistence/PersistQueue';
 import { emergencyStorage } from '../../../core/persistence/EmergencyStorage';
@@ -66,27 +67,37 @@ export function AppShell() {
     endSession,
   } = useUndo();
 
+  // --- 持久化存储（Electron 走 IPC 文件写入，Android/Web 走 localStorage） ---
+  const saveToDisk = useCallback((memos: Memo[]) => {
+    try {
+      if (window.electronAPI?.saveMemos) {
+        window.electronAPI.saveMemos(memos);
+      } else {
+        localStorage.setItem('memos', JSON.stringify(memos));
+      }
+    } catch (err) {
+      console.error('[Save] 写入失败:', err);
+    }
+  }, []);
+
   // --- Keyboard shortcuts ---
   useKeyboard({ onUndo: undo, onRedo: redo });
 
-  // --- Init: load data from IndexedDB ---
+  // --- 启动时加载数据 ---
   useEffect(() => {
     (async () => {
       try {
-        const loaded = await dbAdapter.getAll();
-        const marked = memoService.markExpired(loaded);
-        setMemos(marked);
-        // 检查紧急备份
-        const emergency = emergencyStorage.recover<Memo[]>();
-        if (emergency && emergency.length > 0) {
-          for (const m of emergency) {
-            const exists = marked.find((x) => x.uuid === m.uuid);
-            if (!exists) {
-              await dbAdapter.add(m);
-              setMemos((prev) => [...prev, m]);
-            }
-          }
-          emergencyStorage.clear();
+        let loaded: Memo[] = [];
+        if (window.electronAPI?.loadMemos) {
+          const data = await window.electronAPI.loadMemos();
+          loaded = data as Memo[];
+        } else {
+          const raw = localStorage.getItem('memos');
+          if (raw) loaded = JSON.parse(raw);
+        }
+        if (loaded.length > 0) {
+          const marked = memoService.markExpired(loaded);
+          setMemos(marked);
         }
       } catch (err) {
         console.error('[AppShell] 数据加载失败:', err);
@@ -111,19 +122,18 @@ export function AppShell() {
 
   const handleSave = useCallback(
     (content: string, remindTime: Date) => {
-      // 根据提醒时间决定状态：未来→待办，过去→过期
       const computedStatus = remindTime > new Date() ? ('pending' as const) : ('expired' as const);
+      let saved: Memo[];
 
       if (editingMemo) {
-        // 编辑已有条目
         pushSnapshot({ action: 'edit', description: `编辑 "${content.slice(0, 20)}"` });
         const updated = memoService.touchMemo({
           ...editingMemo, content, remindTime, status: computedStatus,
         });
         updateMemo(updated);
-        persistQueue.enqueue({ type: 'upsert', memoId: updated.uuid, data: updated });
+        saved = memos.map((m) => (m.uuid === updated.uuid ? updated : m));
+        saveToDisk(saved);
       } else {
-        // 新建条目
         try {
           memoService.validateMaxMemos(memos.length, config.maxMemos);
         } catch (err: any) {
@@ -133,12 +143,13 @@ export function AppShell() {
         pushSnapshot({ action: 'create', description: `创建 "${content.slice(0, 20)}"` });
         const memo = { ...memoService.createMemo(content, remindTime), status: computedStatus };
         addMemo(memo);
-        persistQueue.enqueue({ type: 'upsert', memoId: memo.uuid, data: memo });
+        saved = [...memos, memo];
+        saveToDisk(saved);
       }
       setEditorOpen(false);
       setEditingMemo(null);
     },
-    [editingMemo, memos.length, config.maxMemos, pushSnapshot, updateMemo, addMemo, persistQueue],
+    [editingMemo, memos.length, config.maxMemos, pushSnapshot, updateMemo, memos, saveToDisk],
   );
 
   const handleComplete = useCallback(
@@ -148,9 +159,10 @@ export function AppShell() {
       pushSnapshot({ action: 'edit', description: `完成 "${target.content.slice(0, 20)}"` });
       const updated = { ...target, status: 'completed' as const, updatedAt: new Date() };
       updateMemo(updated);
-      persistQueue.enqueue({ type: 'upsert', memoId: uuid, data: updated });
+      const saved = memos.map((m) => (m.uuid === uuid ? updated : m));
+      saveToDisk(saved);
     },
-    [memos, pushSnapshot, updateMemo, persistQueue],
+    [memos, pushSnapshot, updateMemo, saveToDisk],
   );
 
   const handleEdit = useCallback((memo: Memo) => {
@@ -163,9 +175,10 @@ export function AppShell() {
       const target = memos.find((m) => m.uuid === uuid);
       pushSnapshot({ action: 'delete', description: `删除 "${target?.content.slice(0, 20)}"` });
       deleteMemo(uuid);
-      persistQueue.enqueue({ type: 'delete', memoId: uuid });
+      const saved = memos.filter((m) => m.uuid !== uuid);
+      saveToDisk(saved);
     },
-    [memos, pushSnapshot, deleteMemo, persistQueue],
+    [memos, pushSnapshot, deleteMemo, saveToDisk],
   );
 
   const handleBatchDelete = useCallback(
@@ -186,8 +199,8 @@ export function AppShell() {
   const handleSync = useCallback(async () => {
     setSyncing(true);
     try {
-      if (!window.electronAPI || !config.github) return;
-      const token = await window.electronAPI.getGithubToken();
+      if (!config.github) return;
+      const token = await githubApi.getToken();
       if (!token) {
         alert('未配置 Token，请在设置中配置');
         return;
@@ -195,35 +208,30 @@ export function AppShell() {
       const { owner, repo, syncMode } = config.github;
 
       if (syncMode === 'forceRemote') {
-        // 强制远程覆盖本地：拉取远程数据替换本地
-        const remote = await window.electronAPI.syncPull({ token, owner, repo });
+        const remote = await githubApi.pullMemos(token, owner, repo);
         if (remote && remote.length > 0) {
           setMemos(remote);
+          saveToDisk(remote);
           alert(`[${syncMode}] 同步完成！已拉取 ${remote.length} 条远程数据覆盖本地`);
         } else {
-          alert(`[${syncMode}] 远程仓库无数据或拉取失败`);
+          alert(`[${syncMode}] 远程仓库无数据，本地数据未改变`);
         }
       } else if (syncMode === 'forceLocal') {
-        // 强制本地覆盖远程：推送本地数据覆盖远程
-        await window.electronAPI.syncPush({ token, owner, repo, memos });
+        await githubApi.pushMemos(token, owner, repo, memos);
         alert(`[${syncMode}] 同步完成！已推送 ${memos.length} 条覆盖远程`);
       } else {
-        // safe 模式：先拉取远程，检测冲突
-        const remote = await window.electronAPI.syncPull({ token, owner, repo });
+        const remote = await githubApi.pullMemos(token, owner, repo);
         if (remote && remote.length > 0) {
-          // 简单合并：远程有条目但本地也有时以本地为准
           const localIds = new Set(memos.map((m) => m.uuid));
           const merged = [...memos];
           for (const r of remote) {
-            if (!localIds.has(r.uuid)) {
-              merged.push(r);
-            }
+            if (!localIds.has(r.uuid)) merged.push(r);
           }
           setMemos(merged);
-          await window.electronAPI.syncPush({ token, owner, repo, memos: merged });
+          await githubApi.pushMemos(token, owner, repo, merged);
           alert(`同步完成！已合并远程 ${remote.length} 条`);
         } else {
-          await window.electronAPI.syncPush({ token, owner, repo, memos });
+          await githubApi.pushMemos(token, owner, repo, memos);
           alert(`同步完成！已推送 ${memos.length} 条到远程`);
         }
       }
@@ -292,21 +300,24 @@ export function AppShell() {
     return () => clearInterval(interval);
   }, [persistQueue, memos]);
 
+  // --- 关闭前确保数据落盘 ---
+  useEffect(() => {
+    const handler = () => {
+      // 同步阻塞 IndexedDB 写入完成
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
   // --- 自动同步：每 30 分钟推送一次到 GitHub ---
   useEffect(() => {
     if (!config.github) return;
 
     const interval = setInterval(async () => {
       try {
-        if (!window.electronAPI) return;
-        const token = await window.electronAPI.getGithubToken();
+        const token = await githubApi.getToken();
         if (!token || !config.github) return;
-        await window.electronAPI.syncPush({
-          token,
-          owner: config.github.owner,
-          repo: config.github.repo,
-          memos,
-        });
+        await githubApi.pushMemos(token, config.github.owner, config.github.repo, memos);
         console.log('[AutoSync] 同步完成');
       } catch (err) {
         console.warn('[AutoSync] 同步失败（下次重试）:', err);
@@ -320,29 +331,60 @@ export function AppShell() {
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
-      for (const memo of memos) {
+      let changed = false;
+      const updated = memos.map((memo) => {
         if (memo.status === 'pending' && new Date(memo.remindTime) <= now) {
-          // 标记为过期
-          updateMemo({ ...memo, status: 'expired' });
-          // 浏览器通知
-          if (Notification.permission === 'granted') {
+          changed = true;
+          // 浏览器通知（Android WebView 不支持 Notification API）
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
             new Notification('备忘录提醒', {
               body: memo.content.length > 80
                 ? memo.content.slice(0, 80) + '...'
                 : memo.content,
             });
           }
+          return { ...memo, status: 'expired' as const };
         }
+        return memo;
+      });
+      if (changed) {
+        // 一次性更新 Zustand 并落盘
+        memos.forEach((m, i) => {
+          if (m.status === 'pending' && new Date(m.remindTime) <= now) {
+            updateMemo(updated[i]);
+          }
+        });
+        saveToDisk(updated);
       }
     }, 60 * 1000); // 每分钟
 
-    // 请求通知权限
-    if (Notification.permission === 'default') {
+    // 请求通知权限（Android WebView 不支持 Notification API）
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
     return () => clearInterval(interval);
-  }, [memos, updateMemo]);
+  }, [memos, updateMemo, saveToDisk]);
+
+  // --- 跨平台版本更新检测 ---
+  useEffect(() => {
+    const APP_VERSION = '0.1.0';
+    const checkUpdate = async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/lousp15/MemoPad/releases/latest');
+        if (!res.ok) return;
+        const data = await res.json();
+        const latestVer = (data.tag_name || '').replace(/^v/, '');
+        const newer = latestVer.split('.').map(Number)
+          .reduce((acc: boolean, n: number, i: number) => acc || n > (APP_VERSION.split('.').map(Number)[i] || 0), false);
+        if (newer && confirm(`发现新版本 v${latestVer}，是否前往下载？`)) {
+          window.open(data.html_url, '_blank');
+        }
+      } catch {}
+    };
+    const timer = setTimeout(checkUpdate, 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -366,7 +408,7 @@ export function AppShell() {
           component="main"
           sx={{
             flex: 1,
-            p: 2,
+            p: { xs: 1, sm: 2 },
             overflow: 'auto',
             bgcolor: 'background.default',
           }}

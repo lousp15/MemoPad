@@ -6,7 +6,7 @@ import path from 'path';
 import { registerIpcHandlers } from './ipc-handlers';
 
 const APP_VERSION = '0.1.0';
-const GITHUB_REPO = 'lousp15/bwl';
+const GITHUB_REPO = 'lousp15/MemoPad';
 
 // 必须在 whenReady 之前调用单例锁
 const gotTheLock = app.requestSingleInstanceLock();
@@ -35,7 +35,10 @@ async function checkForUpdates() {
     if (!res.ok) return;
     const data = await res.json() as { tag_name: string; html_url: string; body?: string };
     const latestVersion = data.tag_name.replace(/^v/, '');
-    if (latestVersion > APP_VERSION) {
+    // 简单版本号比较（仅支持 x.y.z 格式）
+    const newer = latestVersion.split('.').map(Number)
+      .reduce((acc, n, i) => acc || n > (APP_VERSION.split('.').map(Number)[i] || 0), false);
+    if (newer) {
       const { response } = await dialog.showMessageBox({
         type: 'info',
         title: '发现新版本',
@@ -78,10 +81,8 @@ app.whenReady().then(() => {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // 启动后延迟 3 秒检查更新（生产环境）
-  if (!process.env.VITE_DEV_SERVER_URL) {
-    setTimeout(checkForUpdates, 3000);
-  }
+  // 启动后延迟 3 秒检查更新
+  setTimeout(checkForUpdates, 3000);
 });
 
 app.on('window-all-closed', () => {

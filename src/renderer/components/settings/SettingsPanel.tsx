@@ -7,7 +7,6 @@ import {
   Button,
   Stack,
 } from '@mui/material';
-import { ThemeSettings } from './ThemeSettings';
 import { MemoSettings } from './MemoSettings';
 import { SyncSettings } from './SyncSettings';
 
@@ -22,7 +21,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       <DialogTitle>设置</DialogTitle>
       <DialogContent>
         <Stack spacing={3} sx={{ mt: 1 }}>
-          <ThemeSettings />
           <MemoSettings />
           <SyncSettings />
         </Stack>

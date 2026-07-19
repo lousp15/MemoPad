@@ -7,6 +7,8 @@ import {
   ListItemIcon,
   ListItemText,
   Toolbar,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import InboxIcon from '@mui/icons-material/Inbox';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -21,16 +23,20 @@ const DRAWER_WIDTH = 204;
 export function Sidebar({ onNavigate }: SidebarProps) {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   return (
     <Drawer
-      variant="persistent"
+      variant={isMobile ? 'temporary' : 'persistent'}
       open={sidebarOpen}
+      onClose={isMobile ? toggleSidebar : undefined}
       sx={{
-        width: DRAWER_WIDTH,
+        width: isMobile ? 'auto' : DRAWER_WIDTH,
         flexShrink: 0,
         '& .MuiDrawer-paper': {
-          width: DRAWER_WIDTH,
+          width: isMobile ? '80vw' : DRAWER_WIDTH,
+          maxWidth: 300,
           boxSizing: 'border-box',
         },
       }}
@@ -38,7 +44,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <Toolbar />
       <List>
         <ListItem disablePadding>
-          <ListItemButton onClick={() => onNavigate('memos')}>
+          <ListItemButton onClick={() => { onNavigate('memos'); if (isMobile) toggleSidebar(); }}>
             <ListItemIcon>
               <InboxIcon />
             </ListItemIcon>
@@ -46,7 +52,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </ListItemButton>
         </ListItem>
         <ListItem disablePadding>
-          <ListItemButton onClick={() => onNavigate('settings')}>
+          <ListItemButton onClick={() => { onNavigate('settings'); if (isMobile) toggleSidebar(); }}>
             <ListItemIcon>
               <SettingsIcon />
             </ListItemIcon>

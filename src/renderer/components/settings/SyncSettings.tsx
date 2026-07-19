@@ -15,6 +15,7 @@ import {
 import { useConfigStore } from '../../stores/configStore';
 import { useMemoStore } from '../../stores/memoStore';
 import type { SyncMode } from '@shared/types';
+import { githubApi } from '../../../core/services/GitHubApi';
 
 export function SyncSettings() {
   const config = useConfigStore((s) => s.config);
@@ -30,21 +31,28 @@ export function SyncSettings() {
   // 加载已保存的配置（Token + 仓库）
   useEffect(() => {
     (async () => {
-      if (!window.electronAPI) return;
-      const [hasToken, savedConfig] = await Promise.all([
-        window.electronAPI.hasGithubToken(),
-        window.electronAPI.getGithubConfig(),
-      ]);
-      setTokenStatus(hasToken ? 'valid' : 'unknown');
-      if (savedConfig) {
-        updateConfig({
-          github: {
-            owner: savedConfig.owner,
-            repo: savedConfig.repo,
-            branch: savedConfig.branch,
-            syncMode: savedConfig.syncMode as SyncMode,
-          },
-        });
+      const token = await githubApi.getToken();
+      setTokenStatus(token ? 'valid' : 'unknown');
+
+      if (window.electronAPI) {
+        const savedConfig = await window.electronAPI.getGithubConfig();
+        if (savedConfig) {
+          updateConfig({
+            github: {
+              owner: savedConfig.owner,
+              repo: savedConfig.repo,
+              branch: savedConfig.branch,
+              syncMode: savedConfig.syncMode as SyncMode,
+            },
+          });
+        }
+      } else {
+        // Android：从 localStorage 恢复仓库配置
+        const savedRaw = localStorage.getItem('github_config');
+        if (savedRaw) {
+          const savedConfig = JSON.parse(savedRaw);
+          updateConfig({ github: savedConfig });
+        }
       }
     })();
   }, [updateConfig]);
@@ -55,18 +63,77 @@ export function SyncSettings() {
     if (window.electronAPI) {
       return await window.electronAPI.getGithubToken();
     }
-    return null;
+    // Android / Web：从 localStorage 读取
+    return localStorage.getItem('github_token');
   }, [tokenInput]);
+
+  /** 直接调用 GitHub API 验证 Token（兼容 Android / Web） */
+  const validateTokenDirect = async (token: string): Promise<boolean> => {
+    try {
+      const res = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  /** 直接推送到 GitHub（兼容 Android / Web） */
+  const pushToGithubDirect = async (token: string, owner: string, repo: string, memos: any[]) => {
+    const content = btoa(JSON.stringify(memos, null, 2));
+    const branch = 'master';
+
+    // 先尝试获取已有文件 SHA
+    let sha: string | undefined;
+    try {
+      const getRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (getRes.ok) {
+        const data = await getRes.json();
+        sha = data.sha;
+      }
+    } catch {}
+
+    // 推送
+    const putRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `MemoPad 同步 ${new Date().toISOString()}`,
+          content,
+          branch,
+          sha,
+        }),
+      },
+    );
+    if (!putRes.ok) throw new Error(`GitHub 返回 ${putRes.status}`);
+  };
 
   const handleValidate = async () => {
     if (!tokenInput.trim()) return;
     setValidating(true);
     try {
       if (window.electronAPI) {
+        // Electron 环境：走 IPC
         const valid = await window.electronAPI.validateGithubToken(tokenInput.trim());
         setTokenStatus(valid ? 'valid' : 'invalid');
         if (valid) {
           await window.electronAPI.saveGithubToken(tokenInput.trim());
+        }
+      } else {
+        // Android / Web：直接调用 GitHub API
+        const valid = await validateTokenDirect(tokenInput.trim());
+        setTokenStatus(valid ? 'valid' : 'invalid');
+        if (valid) {
+          localStorage.setItem('github_token', tokenInput.trim());
         }
       }
     } finally {
@@ -76,13 +143,18 @@ export function SyncSettings() {
 
   // 仓库配置变更时自动持久化到本地
   useEffect(() => {
-    if (!config.github || !window.electronAPI) return;
-    window.electronAPI.saveGithubConfig({
+    if (!config.github) return;
+    const cfg = {
       owner: config.github.owner,
       repo: config.github.repo,
       branch: config.github.branch,
       syncMode: config.github.syncMode,
-    });
+    };
+    if (window.electronAPI) {
+      window.electronAPI.saveGithubConfig(cfg);
+    } else {
+      localStorage.setItem('github_config', JSON.stringify(cfg));
+    }
   }, [config.github]);
 
   const handleClear = async () => {
@@ -90,6 +162,7 @@ export function SyncSettings() {
       await window.electronAPI.clearGithubToken();
       await window.electronAPI.saveGithubConfig({ owner: '', repo: '', branch: 'main', syncMode: 'safe' });
     }
+    localStorage.removeItem('github_token');
     setTokenStatus('unknown');
     setTokenInput('');
     updateConfig({ github: undefined });
@@ -99,18 +172,30 @@ export function SyncSettings() {
     setSyncing(true);
     try {
       const effectiveToken = await getEffectiveToken();
-      if (!window.electronAPI || !effectiveToken || !config.github) {
+      if (!effectiveToken || !config.github) {
         alert('请先配置并验证仓库');
         return;
       }
-      await window.electronAPI.syncPush({
-        token: effectiveToken,
-        owner: config.github.owner,
-        repo: config.github.repo,
-        memos,
-      });
-      // 同步成功后确保 Token 已存储
-      await window.electronAPI.saveGithubToken(effectiveToken);
+
+      if (window.electronAPI) {
+        // Electron 环境
+        await window.electronAPI.syncPush({
+          token: effectiveToken,
+          owner: config.github.owner,
+          repo: config.github.repo,
+          memos,
+        });
+        await window.electronAPI.saveGithubToken(effectiveToken);
+      } else {
+        // Android / Web 环境
+        await pushToGithubDirect(
+          effectiveToken,
+          config.github.owner,
+          config.github.repo,
+          memos,
+        );
+      }
+
       alert(`同步成功！已推送 ${memos.length} 条备忘录到远程仓库`);
     } catch (err: any) {
       alert('同步失败: ' + (err?.message ?? '未知错误'));

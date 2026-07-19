@@ -14,7 +14,6 @@ export const useConfigStore = create<ConfigState>((set) => ({
     maxMemos: DEFAULTS.MAX_MEMOS,
     maxUndoStack: DEFAULTS.MAX_UNDO_STACK,
     autoSaveDelay: DEFAULTS.AUTO_SAVE_DELAY_MS,
-    theme: DEFAULTS.THEME,
   },
 
   setConfig: (config) => set({ config }),

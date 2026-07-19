@@ -96,6 +96,37 @@ export function registerIpcHandlers(): void {
     console.log('[IPC] flush 请求已接收');
   });
 
+  // 文件级持久化（替代 localStorage，解决 file:// 协议下不可靠问题）
+  ipcMain.handle('storage:save-memos', async (_event, memos: unknown[]) => {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const dataDir = path.join(app.getPath('userData'), 'data');
+      await fs.mkdir(dataDir, { recursive: true });
+      await fs.writeFile(
+        path.join(dataDir, 'memos.json'),
+        JSON.stringify(memos, null, 2),
+        'utf-8',
+      );
+    } catch (err) {
+      console.error('[storage] 保存失败:', err);
+    }
+  });
+
+  ipcMain.handle('storage:load-memos', async () => {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const filePath = path.join(app.getPath('userData'), 'data', 'memos.json');
+      const exists = await fs.stat(filePath).then(() => true).catch(() => false);
+      if (!exists) return [];
+      const raw = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  });
+
   // 应用版本
   ipcMain.handle('app:get-version', () => {
     return app.getVersion();

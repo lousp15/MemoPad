@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncPush: (params: { token: string; owner: string; repo: string; memos: unknown[] }) =>
     ipcRenderer.invoke('sync:push', params),
 
+  // 文件级持久化
+  saveMemos: (memos: unknown[]) => ipcRenderer.invoke('storage:save-memos', memos),
+  loadMemos: () => ipcRenderer.invoke('storage:load-memos'),
+
   // 持久化队列
   flushQueue: () =>
     ipcRenderer.invoke('persist:flush'),

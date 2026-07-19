@@ -31,6 +31,11 @@ export interface ElectronAPI {
   /** 推送备忘录到 GitHub 仓库 */
   syncPush: (params: { token: string; owner: string; repo: string; memos: any[] }) => Promise<void>;
 
+  /** 文件级持久化保存 */
+  saveMemos: (memos: unknown[]) => Promise<void>;
+  /** 文件级持久化加载 */
+  loadMemos: () => Promise<unknown[]>;
+
   /** 强制刷新持久化队列 */
   flushQueue: () => Promise<void>;
 
