@@ -1,8 +1,37 @@
 node_modules/
 dist/
+docs/
+tests/
 .cache/
 *.log
 .env
 .env.local
 .DS_Store
 Thumbs.db
+
+# 非关键代码（配置/数据）
+.prettierrc
+playwright.config.ts
+vitest.config.ts
+memos.json
+
+# 安全隐患（密钥/凭据/本地配置）
+*.key
+*.pem
+*.secret
+credentials*
+secrets*
+config.local.*
+*.local.config
+
+# 构建产出
+release/
+*.apk
+*.aab
+MemoPad.jks
+android/.gradle/
+android/app/build/
+android/captures/
+android/.idea/
+android/local.properties
+*.zip

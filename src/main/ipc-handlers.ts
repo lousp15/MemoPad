@@ -21,8 +21,73 @@ export function registerIpcHandlers(): void {
     storeService.setGithubToken(token);
   });
 
+  ipcMain.handle('github:get-token', () => {
+    return storeService.getGithubToken();
+  });
+
   ipcMain.handle('github:clear-token', () => {
     storeService.clearGithubToken();
+  });
+
+  // 仓库配置持久化
+  ipcMain.handle('github:save-config', (_event, config: { owner: string; repo: string; branch: string; syncMode: string }) => {
+    storeService.setGithubConfig(config);
+  });
+
+  ipcMain.handle('github:get-config', () => {
+    return storeService.getGithubConfig();
+  });
+
+  // GitHub 同步拉取
+  ipcMain.handle('sync:pull', async (_event, { token, owner, repo }: {
+    token: string; owner: string; repo: string;
+  }) => {
+    const { Octokit } = await import('octokit');
+    const octokit = new Octokit({ auth: token });
+    try {
+      const { data } = await octokit.request(
+        'GET /repos/{owner}/{repo}/contents/memos.json',
+        { owner, repo, ref: 'master' },
+      );
+      if (!('content' in data)) return [];
+      const content = Buffer.from(data.content, 'base64').toString('utf-8');
+      return JSON.parse(content);
+    } catch {
+      return [];
+    }
+  });
+
+  // GitHub 同步推送
+  ipcMain.handle('sync:push', async (_event, { token, owner, repo, memos }: {
+    token: string; owner: string; repo: string; memos: unknown[];
+  }) => {
+    const { Octokit } = await import('octokit');
+    const octokit = new Octokit({ auth: token });
+    const path = 'memos.json';
+    const content = Buffer.from(JSON.stringify(memos, null, 2)).toString('base64');
+    const branch = 'master';
+
+    try {
+      const { data } = await octokit.request(
+        'GET /repos/{owner}/{repo}/contents/{path}',
+        { owner, repo, path, ref: branch },
+      );
+      const sha = 'sha' in data ? data.sha : undefined;
+      await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+        owner, repo, path, message: `MemoPad 同步 ${new Date().toISOString()}`,
+        content, sha, branch,
+      });
+    } catch (err: any) {
+      if (err?.status === 404) {
+        await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+          owner, repo, path,
+          message: `MemoPad 初始同步 ${new Date().toISOString()}`,
+          content, branch,
+        });
+        return;
+      }
+      throw err;
+    }
   });
 
   // 持久化队列

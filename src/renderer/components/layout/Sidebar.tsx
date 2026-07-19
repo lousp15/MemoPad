@@ -16,7 +16,7 @@ interface SidebarProps {
   onNavigate: (target: string) => void;
 }
 
-const DRAWER_WIDTH = 240;
+const DRAWER_WIDTH = 204;
 
 export function Sidebar({ onNavigate }: SidebarProps) {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
@@ -42,7 +42,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <ListItemIcon>
               <InboxIcon />
             </ListItemIcon>
-            <ListItemText primary="所有备忘录" />
+            <ListItemText primary="备忘录" />
           </ListItemButton>
         </ListItem>
         <ListItem disablePadding>

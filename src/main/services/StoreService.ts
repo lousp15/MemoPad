@@ -50,6 +50,20 @@ export class StoreService {
   getEncryptionStatus(): 'available' | 'unavailable' {
     return this.useSafeStorage ? 'available' : 'unavailable';
   }
+
+  // ---- 仓库配置持久化 ----
+
+  setGithubConfig(config: { owner: string; repo: string; branch: string; syncMode: string }): void {
+    this.store.set('githubConfig', config);
+  }
+
+  getGithubConfig(): { owner: string; repo: string; branch: string; syncMode: string } | null {
+    return this.store.get('githubConfig') as any ?? null;
+  }
+
+  clearGithubConfig(): void {
+    this.store.delete('githubConfig');
+  }
 }
 
 export const storeService = new StoreService();

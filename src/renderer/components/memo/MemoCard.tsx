@@ -6,6 +6,7 @@ interface MemoCardProps {
   selected?: boolean;
   onSelect?: () => void;
   onEdit?: () => void;
+  onComplete?: () => void;
   onDelete?: () => void;
   showCheckbox?: boolean;
   checked?: boolean;
@@ -17,6 +18,7 @@ export function MemoCard({
   selected,
   onSelect,
   onEdit,
+  onComplete,
   onDelete,
   showCheckbox,
   checked,
@@ -75,16 +77,26 @@ export function MemoCard({
           </span>
         </div>
       </div>
-      {onEdit && (
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }}>
-          编辑
-        </button>
-      )}
-      {onDelete && (
-        <button onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-          删除
-        </button>
-      )}
+      <div style={{ display: 'flex', gap: 4 }}>
+        {memo.status !== 'completed' && onComplete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onComplete(); }}
+            style={{ background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}
+          >
+            完成
+          </button>
+        )}
+        {onEdit && (
+          <button onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+            编辑
+          </button>
+        )}
+        {onDelete && (
+          <button onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            删除
+          </button>
+        )}
+      </div>
     </div>
   );
 }

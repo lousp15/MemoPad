@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Experimental_CssVarsProvider as CssVarsProvider,
   extendTheme,
-  type Theme,
+  useColorScheme,
 } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import 'dayjs/locale/zh-cn';
+import { useConfigStore } from '../stores/configStore';
 
 const theme = extendTheme({
   colorSchemes: {
@@ -25,6 +26,18 @@ const theme = extendTheme({
   },
 });
 
+/** 内部组件：监听 config.theme 变化并调用 setMode */
+function ThemeSync() {
+  const themeMode = useConfigStore((s) => s.config.theme);
+  const { setMode } = useColorScheme();
+
+  useEffect(() => {
+    setMode(themeMode);
+  }, [themeMode, setMode]);
+
+  return null;
+}
+
 interface ThemeProviderProps {
   children: React.ReactNode;
 }
@@ -32,6 +45,7 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps) {
   return (
     <CssVarsProvider theme={theme} defaultMode="light">
+      <ThemeSync />
       <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="zh-cn">
         {children}
       </LocalizationProvider>

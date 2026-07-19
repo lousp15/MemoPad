@@ -11,6 +11,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
+import SyncIcon from '@mui/icons-material/Sync';
 import { useUiStore } from '../../stores/uiStore';
 
 interface TopBarProps {
@@ -21,6 +22,9 @@ interface TopBarProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onEndSession?: () => void;
+  onSync?: () => void;
+  syncing?: boolean;
+  syncConfigured?: boolean;
 }
 
 export function TopBar({
@@ -31,6 +35,9 @@ export function TopBar({
   onUndo,
   onRedo,
   onEndSession,
+  onSync,
+  syncing = false,
+  syncConfigured = false,
 }: TopBarProps) {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
 
@@ -59,6 +66,13 @@ export function TopBar({
               </IconButton>
             </span>
           </Tooltip>
+          {syncConfigured && (
+            <Tooltip title={syncing ? '同步中...' : '立即同步到 GitHub'}>
+              <IconButton color="inherit" onClick={onSync} disabled={syncing}>
+                <SyncIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="结束会话（清空撤销历史）">
             <IconButton color="inherit" onClick={onEndSession}>
               <ExitToAppIcon />

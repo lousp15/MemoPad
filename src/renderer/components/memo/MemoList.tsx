@@ -9,6 +9,7 @@ interface MemoListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onEdit: (memo: Memo) => void;
+  onComplete: (id: string) => void;
   onDelete: (id: string) => void;
   onBatchDelete: (ids: string[]) => void;
 }
@@ -18,6 +19,7 @@ export function MemoList({
   selectedId,
   onSelect,
   onEdit,
+  onComplete,
   onDelete,
   onBatchDelete,
 }: MemoListProps) {
@@ -84,6 +86,7 @@ export function MemoList({
           selected={selectedId === memo.uuid}
           onSelect={() => onSelect(memo.uuid)}
           onEdit={() => onEdit(memo)}
+          onComplete={() => onComplete(memo.uuid)}
           onDelete={() => onDelete(memo.uuid)}
           showCheckbox={batchMode}
           checked={selectedIds.includes(memo.uuid)}

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Chip, Stack } from '@mui/material';
+import { Chip, Stack, IconButton } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 
 type FilterValue = 'all' | 'pending' | 'completed' | 'expired';
 
@@ -7,6 +8,7 @@ interface MemoFilterProps {
   value: FilterValue;
   onChange: (value: FilterValue) => void;
   counts: Record<FilterValue, number>;
+  onAdd?: () => void;
 }
 
 const FILTER_OPTIONS: { value: FilterValue; label: string }[] = [
@@ -16,9 +18,9 @@ const FILTER_OPTIONS: { value: FilterValue; label: string }[] = [
   { value: 'expired', label: '已过期' },
 ];
 
-export function MemoFilter({ value, onChange, counts }: MemoFilterProps) {
+export function MemoFilter({ value, onChange, counts, onAdd }: MemoFilterProps) {
   return (
-    <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+    <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
       {FILTER_OPTIONS.map((opt) => (
         <Chip
           key={opt.value}
@@ -28,6 +30,14 @@ export function MemoFilter({ value, onChange, counts }: MemoFilterProps) {
           variant={value === opt.value ? 'filled' : 'outlined'}
         />
       ))}
+      <IconButton
+        onClick={onAdd}
+        size="small"
+        color="primary"
+        sx={{ ml: 'auto' }}
+      >
+        <AddIcon />
+      </IconButton>
     </Stack>
   );
 }

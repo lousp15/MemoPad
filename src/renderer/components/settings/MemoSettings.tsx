@@ -28,7 +28,6 @@ export function MemoSettings() {
         step={5}
         marks={[
           { value: MAX_MEMOS_RANGE.MIN, label: `${MAX_MEMOS_RANGE.MIN}` },
-          { value: MAX_MEMOS_RANGE.MAX, label: `${MAX_MEMOS_RANGE.MAX}` },
           { value: MAX_MEMOS_RANGE.MAX + 1, label: '不限' },
         ]}
         valueLabelDisplay="auto"

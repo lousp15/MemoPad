@@ -1,0 +1,8 @@
+{
+  "appId": "com.memopad.app",
+  "appName": "MemoPad",
+  "webDir": "dist/renderer",
+  "server": {
+    "androidScheme": "https"
+  }
+}

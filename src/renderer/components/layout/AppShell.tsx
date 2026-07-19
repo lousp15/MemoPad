@@ -111,10 +111,15 @@ export function AppShell() {
 
   const handleSave = useCallback(
     (content: string, remindTime: Date) => {
+      // 根据提醒时间决定状态：未来→待办，过去→过期
+      const computedStatus = remindTime > new Date() ? ('pending' as const) : ('expired' as const);
+
       if (editingMemo) {
         // 编辑已有条目
         pushSnapshot({ action: 'edit', description: `编辑 "${content.slice(0, 20)}"` });
-        const updated = memoService.touchMemo({ ...editingMemo, content, remindTime });
+        const updated = memoService.touchMemo({
+          ...editingMemo, content, remindTime, status: computedStatus,
+        });
         updateMemo(updated);
         persistQueue.enqueue({ type: 'upsert', memoId: updated.uuid, data: updated });
       } else {
@@ -126,7 +131,7 @@ export function AppShell() {
           return;
         }
         pushSnapshot({ action: 'create', description: `创建 "${content.slice(0, 20)}"` });
-        const memo = memoService.createMemo(content, remindTime);
+        const memo = { ...memoService.createMemo(content, remindTime), status: computedStatus };
         addMemo(memo);
         persistQueue.enqueue({ type: 'upsert', memoId: memo.uuid, data: memo });
       }
@@ -134,6 +139,18 @@ export function AppShell() {
       setEditingMemo(null);
     },
     [editingMemo, memos.length, config.maxMemos, pushSnapshot, updateMemo, addMemo, persistQueue],
+  );
+
+  const handleComplete = useCallback(
+    (uuid: string) => {
+      const target = memos.find((m) => m.uuid === uuid);
+      if (!target) return;
+      pushSnapshot({ action: 'edit', description: `完成 "${target.content.slice(0, 20)}"` });
+      const updated = { ...target, status: 'completed' as const, updatedAt: new Date() };
+      updateMemo(updated);
+      persistQueue.enqueue({ type: 'upsert', memoId: uuid, data: updated });
+    },
+    [memos, pushSnapshot, updateMemo, persistQueue],
   );
 
   const handleEdit = useCallback((memo: Memo) => {
@@ -161,6 +178,61 @@ export function AppShell() {
     },
     [pushSnapshot, deleteMemo, persistQueue],
   );
+
+  // --- Sync to GitHub ---
+  const [syncing, setSyncing] = useState(false);
+  const syncConfigured = !!(config.github);
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      if (!window.electronAPI || !config.github) return;
+      const token = await window.electronAPI.getGithubToken();
+      if (!token) {
+        alert('未配置 Token，请在设置中配置');
+        return;
+      }
+      const { owner, repo, syncMode } = config.github;
+
+      if (syncMode === 'forceRemote') {
+        // 强制远程覆盖本地：拉取远程数据替换本地
+        const remote = await window.electronAPI.syncPull({ token, owner, repo });
+        if (remote && remote.length > 0) {
+          setMemos(remote);
+          alert(`[${syncMode}] 同步完成！已拉取 ${remote.length} 条远程数据覆盖本地`);
+        } else {
+          alert(`[${syncMode}] 远程仓库无数据或拉取失败`);
+        }
+      } else if (syncMode === 'forceLocal') {
+        // 强制本地覆盖远程：推送本地数据覆盖远程
+        await window.electronAPI.syncPush({ token, owner, repo, memos });
+        alert(`[${syncMode}] 同步完成！已推送 ${memos.length} 条覆盖远程`);
+      } else {
+        // safe 模式：先拉取远程，检测冲突
+        const remote = await window.electronAPI.syncPull({ token, owner, repo });
+        if (remote && remote.length > 0) {
+          // 简单合并：远程有条目但本地也有时以本地为准
+          const localIds = new Set(memos.map((m) => m.uuid));
+          const merged = [...memos];
+          for (const r of remote) {
+            if (!localIds.has(r.uuid)) {
+              merged.push(r);
+            }
+          }
+          setMemos(merged);
+          await window.electronAPI.syncPush({ token, owner, repo, memos: merged });
+          alert(`同步完成！已合并远程 ${remote.length} 条`);
+        } else {
+          await window.electronAPI.syncPush({ token, owner, repo, memos });
+          alert(`同步完成！已推送 ${memos.length} 条到远程`);
+        }
+      }
+    } catch (err: any) {
+      alert('同步失败: ' + (err?.message ?? '未知错误'));
+    } finally {
+      setSyncing(false);
+    }
+  }, [config.github, memos, setMemos]);
 
   // --- End session ---
   const handleEndSession = useCallback(() => {
@@ -220,6 +292,58 @@ export function AppShell() {
     return () => clearInterval(interval);
   }, [persistQueue, memos]);
 
+  // --- 自动同步：每 30 分钟推送一次到 GitHub ---
+  useEffect(() => {
+    if (!config.github) return;
+
+    const interval = setInterval(async () => {
+      try {
+        if (!window.electronAPI) return;
+        const token = await window.electronAPI.getGithubToken();
+        if (!token || !config.github) return;
+        await window.electronAPI.syncPush({
+          token,
+          owner: config.github.owner,
+          repo: config.github.repo,
+          memos,
+        });
+        console.log('[AutoSync] 同步完成');
+      } catch (err) {
+        console.warn('[AutoSync] 同步失败（下次重试）:', err);
+      }
+    }, 30 * 60 * 1000); // 30 分钟
+
+    return () => clearInterval(interval);
+  }, [config.github?.owner, config.github?.repo, memos]);
+
+  // --- 提醒检查：每分钟检查过期提醒并弹窗通知 ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      for (const memo of memos) {
+        if (memo.status === 'pending' && new Date(memo.remindTime) <= now) {
+          // 标记为过期
+          updateMemo({ ...memo, status: 'expired' });
+          // 浏览器通知
+          if (Notification.permission === 'granted') {
+            new Notification('备忘录提醒', {
+              body: memo.content.length > 80
+                ? memo.content.slice(0, 80) + '...'
+                : memo.content,
+            });
+          }
+        }
+      }
+    }, 60 * 1000); // 每分钟
+
+    // 请求通知权限
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    return () => clearInterval(interval);
+  }, [memos, updateMemo]);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <TopBar
@@ -230,6 +354,9 @@ export function AppShell() {
         onUndo={undo}
         onRedo={redo}
         onEndSession={handleEndSession}
+        onSync={handleSync}
+        syncing={syncing}
+        syncConfigured={syncConfigured}
       />
 
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -256,12 +383,13 @@ export function AppShell() {
             <EmptyState onCreateNew={handleCreate} />
           ) : (
             <>
-              <MemoFilter value={filter} onChange={setFilter} counts={counts} />
+              <MemoFilter value={filter} onChange={setFilter} counts={counts} onAdd={handleCreate} />
               <MemoList
                 memos={filteredMemos}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onEdit={handleEdit}
+                onComplete={handleComplete}
                 onDelete={handleDelete}
                 onBatchDelete={handleBatchDelete}
               />

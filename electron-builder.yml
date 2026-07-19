@@ -1,0 +1,16 @@
+appId: com.memopad.app
+productName: MemoPad
+copyright: Copyright © 2025
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - package.json
+
+asar: false
+
+win:
+  target: nsis

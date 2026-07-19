@@ -14,8 +14,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveGithubToken: (token: string) =>
     ipcRenderer.invoke('github:save-token', token),
 
+  getGithubToken: () =>
+    ipcRenderer.invoke('github:get-token'),
+
   clearGithubToken: () =>
     ipcRenderer.invoke('github:clear-token'),
+
+  // 仓库配置持久化
+  saveGithubConfig: (config: { owner: string; repo: string; branch: string; syncMode: string }) =>
+    ipcRenderer.invoke('github:save-config', config),
+  getGithubConfig: () =>
+    ipcRenderer.invoke('github:get-config'),
+
+  // GitHub 同步拉取
+  syncPull: (params: { token: string; owner: string; repo: string }) =>
+    ipcRenderer.invoke('sync:pull', params),
+
+  // GitHub 同步推送
+  syncPush: (params: { token: string; owner: string; repo: string; memos: unknown[] }) =>
+    ipcRenderer.invoke('sync:push', params),
 
   // 持久化队列
   flushQueue: () =>
