@@ -228,11 +228,11 @@ export function AppShell() {
             if (!localIds.has(r.uuid)) merged.push(r);
           }
           setMemos(merged);
+          saveToDisk(merged);
           await githubApi.pushMemos(token, owner, repo, merged);
           alert(`同步完成！已合并远程 ${remote.length} 条`);
         } else {
-          await githubApi.pushMemos(token, owner, repo, memos);
-          alert(`同步完成！已推送 ${memos.length} 条到远程`);
+          alert(`同步完成！远程无新数据`);
         }
       }
     } catch (err: any) {

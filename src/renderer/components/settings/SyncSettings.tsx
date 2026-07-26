@@ -79,42 +79,9 @@ export function SyncSettings() {
     }
   };
 
-  /** 直接推送到 GitHub（兼容 Android / Web） */
+  /** 推送到 GitHub（委托 githubApi 处理中文编码） */
   const pushToGithubDirect = async (token: string, owner: string, repo: string, memos: any[]) => {
-    const content = btoa(JSON.stringify(memos, null, 2));
-    const branch = 'master';
-
-    // 先尝试获取已有文件 SHA
-    let sha: string | undefined;
-    try {
-      const getRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (getRes.ok) {
-        const data = await getRes.json();
-        sha = data.sha;
-      }
-    } catch {}
-
-    // 推送
-    const putRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
-      {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `MemoPad 同步 ${new Date().toISOString()}`,
-          content,
-          branch,
-          sha,
-        }),
-      },
-    );
-    if (!putRes.ok) throw new Error(`GitHub 返回 ${putRes.status}`);
+    await githubApi.pushMemos(token, owner, repo, memos);
   };
 
   const handleValidate = async () => {

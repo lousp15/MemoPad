@@ -44,7 +44,7 @@ export const githubApi = {
     try {
       const res = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, cache: 'no-cache' },
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -60,12 +60,12 @@ export const githubApi = {
     const content = base64Encode(JSON.stringify(memos, null, 2));
     const branch = 'master';
 
-    // 先获取 SHA
+    // 获取最新 SHA（禁用缓存避免 409 冲突）
     let sha: string | undefined;
     try {
       const getRes = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/contents/memos.json`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, cache: 'no-cache' },
       );
       if (getRes.ok) {
         const data = await getRes.json();
